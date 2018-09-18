@@ -29,6 +29,7 @@ SECRET_KEY = '41d_1r^_%cwxj-1%ru_$1((u9ga@_eiyw6(3hs#8c0$m#8pxt@'
 DEBUG = True
 
 ALLOWED_HOSTS = ['api.meiduo.site', '127.0.0.1', 'localhost']
+# ALLOWED_HOSTS = ['www.meiduo.site', '127.0.0.1', 'localhost']
 
 
 # Application definition
@@ -42,17 +43,19 @@ INSTALLED_APPS = [
     'django.contrib.staticfiles',
     'rest_framework',
     'users.apps.UsersConfig',
-    'verifications.apps.VerificationsConfig'
+    'verifications.apps.VerificationsConfig',
+    'corsheaders',
 ]
 
 MIDDLEWARE = [
     'django.middleware.security.SecurityMiddleware',
     'django.contrib.sessions.middleware.SessionMiddleware',
     'django.middleware.common.CommonMiddleware',
-    'django.middleware.csrf.CsrfViewMiddleware',
+    # 'django.middleware.csrf.CsrfViewMiddleware',
     'django.contrib.auth.middleware.AuthenticationMiddleware',
     'django.contrib.messages.middleware.MessageMiddleware',
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
+    'corsheaders.middleware.CorsMiddleware',
 ]
 
 ROOT_URLCONF = 'meiduo_mall.urls'
@@ -145,6 +148,13 @@ CACHES = {
         "OPTIONS": {
             "CLIENT_CLASS": "django_redis.client.DefaultClient",
         }
+    },
+    "verify_codes": {
+        "BACKEND": "django_redis.cache.RedisCache",
+        "LOCATION": "redis://127.0.0.1:6379/2",
+        "OPTIONS": {
+            "CLIENT_CLASS": "django_redis.client.DefaultClient",
+        }
     }
 }
 SESSION_ENGINE = "django.contrib.sessions.backends.cache"
@@ -201,4 +211,12 @@ REST_FRAMEWORK = {
 
 
 AUTH_USER_MODEL = 'users.User'
+
+# 添加白名单
+CORS_ORIGIN_WHITELIST = (
+    '127.0.0.1:8080',
+    'localhost:8080',
+    'www.meiduo.site:8080',
+)
+CORS_ALLOW_CREDENTIALS = True  # 允许携带cookie
 
