@@ -5,7 +5,7 @@ from rest_framework import status
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
-from meiduo_mall.libs.yuntongxun.sms import CCP
+from celery_tasks.sms.tasks import send_sms_code
 from verifications import constant
 
 import logging
@@ -39,19 +39,9 @@ class SMSCodesView(APIView):
         res = 0
 
         # 发送短信验证码
-        expires = constant.SMS_CODE_REDIS_EXPIRES
+        sms_code_expires = constant.SMS_CODE_REDIS_EXPIRES // 60
+        send_sms_code.delay(mobile, sms_code, sms_code_expires)
 
-        # try:
-        #     ccp = CCP()
-        #     res = ccp.send_template_sms(mobile, [sms_code, expires], constant.SMS_CODE_TEMP_ID)
-        # except Exception as e:
-        #     logger.error(e)
-        #     return Response({'message': '发送短信异常'}, status=status.HTTP_503_SERVICE_UNAVAILABLE)
-
-        if res != 0:
-            return Response({'message': '发送短信失败'}, status=status.HTTP_503_SERVICE_UNAVAILABLE)
-
-        # send_sms_code.
         return Response({'message': 'OK'})
 
 
