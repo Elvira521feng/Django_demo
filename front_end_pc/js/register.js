@@ -13,6 +13,7 @@ var vm = new Vue({
         error_phone_message: '',
         error_sms_code_message: '',
 
+
         sms_code_tip: '获取短信验证码',
         sending_flag: false, // 正在发送短信标志
 
