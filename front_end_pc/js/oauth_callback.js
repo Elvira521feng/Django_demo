@@ -2,55 +2,59 @@ var vm = new Vue({
     el: '#app',
     data: {
         host: host,
+        is_show_waiting: true,
 
-        error_name: false,
         error_password: false,
-        error_check_password: false,
         error_phone: false,
-        error_allow: false,
         error_sms_code: false,
-        error_name_message: '',
         error_phone_message: '',
         error_sms_code_message: '',
 
         sms_code_tip: '获取短信验证码',
         sending_flag: false, // 正在发送短信标志
 
-        username: '',
         password: '',
-        password2: '',
         mobile: '',
         sms_code: '',
-        allow: false
+        access_token: ''
+    },
+    mounted: function(){
+        // 从url地址中获取code
+        var code = this.get_query_string('code');
+        // 访问获取QQ登录用户openid并处理API接口
+        axios.get(this.host + '/oauth/qq/user/?code=' + code, {
+                responseType: 'json',
+            })
+            .then(response => {
+                if (response.data.user_id){
+                    // 用户已绑定
+                    sessionStorage.clear();
+                    localStorage.clear();
+                    localStorage.user_id = response.data.user_id;
+                    localStorage.username = response.data.username;
+                    localStorage.token = response.data.token;
+                    var state = this.get_query_string('state');
+                    location.href = state;
+                } else {
+                    // 用户未绑定
+                    this.access_token = response.data.access_token;
+                    this.is_show_waiting = false;
+                }
+            })
+            .catch(error => {
+                console.log(error.response.data);
+                alert('服务器异常');
+            })
     },
     methods: {
-        check_username: function (){
-            var len = this.username.length;
-            if(len<5||len>20) {
-                this.error_name_message = '请输入5-20个字符的用户名';
-                this.error_name = true;
-            } else {
-                this.error_name = false;
+        // 获取url路径参数
+        get_query_string: function(name){
+            var reg = new RegExp('(^|&)' + name + '=([^&]*)(&|$)', 'i');
+            var r = window.location.search.substr(1).match(reg);
+            if (r != null) {
+                return decodeURI(r[2]);
             }
-
-            // 获取用户名的数量并判断是否重复
-            if (this.error_name == false) {
-                axios.get(this.host + '/usernames/' + this.username + '/count/', {
-                        responseType: 'json'
-                    })
-                    .then(response => {
-                        if (response.data.count > 0) {
-                            this.error_name_message = '用户名已存在';
-                            this.error_name = true;
-                        } else {
-                            this.error_name = false;
-                        }
-                    })
-                    .catch(error => {
-                        console.log(error.response.data);
-                    })
-            }
-
+            return null;
         },
         check_pwd: function (){
             var len = this.password.length;
@@ -58,13 +62,6 @@ var vm = new Vue({
                 this.error_password = true;
             } else {
                 this.error_password = false;
-            }
-        },
-        check_cpwd: function (){
-            if(this.password!=this.password2) {
-                this.error_check_password = true;
-            } else {
-                this.error_check_password = false;
             }
         },
         check_phone: function (){
@@ -75,26 +72,6 @@ var vm = new Vue({
                 this.error_phone_message = '您输入的手机号格式不正确';
                 this.error_phone = true;
             }
-
-            // 获取手机号的数量并判断是否重复
-            if (this.error_phone == false) {
-                axios.get(this.host + '/mobiles/'+ this.mobile + '/count/', {
-                        responseType: 'json'
-                    })
-                    .then(response => {
-                        if (response.data.count > 0) {
-                            this.error_phone_message = '手机号已存在';
-                            this.error_phone = true;
-                        } else {
-                            this.error_phone = false;
-                        }
-                    })
-                    .catch(error => {
-                        console.log(error.response.data);
-                    })
-            }
-
-
         },
         check_sms_code: function(){
             if(!this.sms_code){
@@ -102,13 +79,6 @@ var vm = new Vue({
                 this.error_sms_code = true;
             } else {
                 this.error_sms_code = false;
-            }
-        },
-        check_allow: function(){
-            if(!this.allow) {
-                this.error_allow = true;
-            } else {
-                this.error_allow = false;
             }
         },
         // 发送手机短信验证码
@@ -131,7 +101,6 @@ var vm = new Vue({
                     responseType: 'json'
                 })
                 .then(response => {
-                    // console.log(this);
                     // 表示后端发送短信成功
                     // 倒计时60秒，60秒后允许用户再次点击发送短信验证码的按钮
                     var num = 60;
@@ -153,60 +122,49 @@ var vm = new Vue({
                 })
                 .catch(error => {
                     if (error.response.status == 400) {
-                        this.error_sms_code_message = error.response.data.message;
-                        this.error_sms_code = true;
+                        this.error_sms_code = error.response.data.message;
+                        this.error_sms_code_message = true;
                     } else {
                         console.log(error.response.data);
                     }
                     this.sending_flag = false;
                 })
         },
-        // 注册
+        // 保存
         on_submit: function(){
-            this.check_username();
             this.check_pwd();
-            this.check_cpwd();
             this.check_phone();
             this.check_sms_code();
-            this.check_allow();
 
-            // 调用注册用户信息保存的API接口
-            if(this.error_name == false && this.error_password == false && this.error_check_password == false
-                && this.error_phone == false && this.error_sms_code == false && this.error_allow == false) {
-                axios.post(this.host + '/users/', {
-                        username: this.username,
+            // 调用保存QQ登录用户绑定数据的API接口
+            if(this.error_password == false && this.error_phone == false && this.error_sms_code == false) {
+                axios.post(this.host + '/oauth/qq/user/', {
                         password: this.password,
-                        password2: this.password2,
                         mobile: this.mobile,
                         sms_code: this.sms_code,
-                        allow: this.allow.toString()
+                        access_token: this.access_token
                     }, {
-                        responseType: 'json'
+                        responseType: 'json',
                     })
                     .then(response => {
-                        // 保存用户的信息
+                        // 记录用户登录状态
                         sessionStorage.clear();
                         localStorage.clear();
+                        localStorage.token = response.data.token;
                         localStorage.user_id = response.data.id;
                         localStorage.username = response.data.username;
-                        // 保存服务器签发jwt token数据
-                        localStorage.token = response.data.token;
-                        location.href = '/index.html';
+                        location.href = this.get_query_string('state');
                     })
                     .catch(error=> {
                         if (error.response.status == 400) {
-                            if ('non_field_errors' in error.response.data) {
-                                this.error_sms_code_message = error.response.data.non_field_errors[0];
-                            } else {
-                                this.error_sms_code_message = '数据有误';
-                            }
+                            this.error_sms_code_message = error.response.data.message;
                             this.error_sms_code = true;
                         } else {
                             console.log(error.response.data);
                         }
                     })
             }
-
         }
     }
 });
+
