@@ -1,0 +1,3 @@
+
+
+class Area(models.Model)
