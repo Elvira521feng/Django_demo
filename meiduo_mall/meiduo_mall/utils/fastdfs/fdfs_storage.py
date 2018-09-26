@@ -6,7 +6,7 @@ from fdfs_client.client import Fdfs_client
 
 
 @deconstructible
-class FDFSStorage(Storage):
+class FastDFSStorage(Storage):
     """FDFS文件存储类"""
     def __init__(self, client_conf=None, base_url=None):
         if client_conf is None:

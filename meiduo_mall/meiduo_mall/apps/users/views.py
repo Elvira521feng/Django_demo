@@ -1,3 +1,4 @@
+from django_redis import get_redis_connection
 from rest_framework import status, mixins
 from rest_framework.decorators import action
 from rest_framework.generics import CreateAPIView, RetrieveAPIView, UpdateAPIView
@@ -6,8 +7,68 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 from rest_framework.viewsets import GenericViewSet
 
+from goods.models import SKU
+from goods.serializers import SKUSerializer
 from users import serializers, constants
 from users.models import User
+
+
+# POST /browse_histories/
+from users.serializers import BrowseHistorySerializer
+
+
+class BrowseHistoryView(CreateAPIView):
+    permission_classes = [IsAuthenticated]
+    serializer_class = BrowseHistorySerializer
+
+    def get(self, request):
+        """
+        用户浏览记录获取:
+        1. 从redis中获取登录用户浏览的商品sku_id
+        2. 根据商品的id获取对应商品的数据
+        3. 将商品的数据进行序列化并返回
+        """
+        # 获取登录user
+        user = request.user
+
+        # 1. 从redis中获取登录用户浏览的商品sku_id
+        redis_conn = get_redis_connection('history')
+
+        history_key = 'history_%s' % user.id
+
+        # lrange(key, start, end): 获取redis列表指定区间内的元素
+        # [b'<sku_id>', b'<sku_id>', ...]
+        sku_ids = redis_conn.lrange(history_key, 0, constants.USER_BROWSING_HISTORY_COUNTS_LIMIT - 1)
+
+        # 2. 根据商品的id获取对应商品的数据
+        skus = []
+        for sku_id in sku_ids:
+            # 根据商品id获取商品信息
+            sku = SKU.objects.get(id=sku_id)
+            skus.append(sku)
+
+        # 3. 将商品的数据进行序列化并返回
+        serializer = SKUSerializer(skus, many=True)
+        return Response(serializer.data)
+
+    # def post(self, request):
+    #     """
+    #     request.user: 获取登录的用户
+    #     用户浏览记录保存:
+    #     1. 获取sku_id并进行校验(sku_id必传，sku_id对应的商品是否存在)
+    #     2. 在redis中保存用户的浏览记录
+    #     3. 返回应答，浏览记录保存成功
+    #     """
+    #     # 1. 获取sku_id并进行校验(sku_id必传，sku_id对应的商品是否存在)
+    #     serializer = self.get_serializer(data=request.data)
+    #     serializer.is_valid(raise_exception=True)
+    #
+    #     # 2. 在redis中保存用户的浏览记录 (create)
+    #     serializer.save()
+    #
+    #     # 3. 返回应答，浏览记录保存成功
+    #     return Response(serializer.data, status=status.HTTP_201_CREATED)
+
 
 
 class VerifyEmailView(APIView):

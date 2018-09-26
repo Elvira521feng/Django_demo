@@ -1,16 +1,130 @@
 import re
 
+from django.conf import settings
+from django.core.mail import send_mail
 from django_redis import get_redis_connection
 from rest_framework import serializers
 
-from users.models import User, Address
 from celery_tasks.email.tasks import send_verify_email
+from goods.models import SKU
+from users import constants
+from users.models import User, Address
+
+
+class BrowseHistorySerializer(serializers.Serializer):
+    """浏览记录添加的序列化器类"""
+    sku_id = serializers.IntegerField(label='商品sku编号')
+
+    def validate_sku_id(self, value):
+        """sku_id对应的商品是否存在"""
+        try:
+            sku = SKU.objects.get(id=value)
+        except SKU.DoesNotExist:
+            raise serializers.ValidationError('商品不存在')
+
+        return value
+
+    def create(self, validated_data):
+        """在redis中保存用户的浏览记录"""
+        # 获取商品sku_id
+        sku_id = validated_data['sku_id']
+
+        # 获取redis链接
+        redis_conn = get_redis_connection('history')
+
+        # 获取登录user
+        user = self.context['request'].user
+
+        # 拼接key
+        history_key = 'history_%s' % user.id
+
+        # 去重: 如果用户已经浏览过某个商品，先将商品sku_id从redis列表元素中移除
+        # lrem(key, count, value): 从redis列表中移除元素，如果元素不存在，直接忽略
+        redis_conn.lrem(history_key, 0, sku_id)
+
+        # 左侧加入: 将用户最新浏览的商品id从左侧加入redis列表元素，保持浏览顺序
+        # lpush(key, *values): 从redis列表的左侧加入元素
+        redis_conn.lpush(history_key, sku_id)
+
+        # 列表截取: 只保留用户最新浏览的几个商品sku_id
+        # ltrim(key, start, stop): 保留redis列表指定区间内的元素
+        redis_conn.ltrim(history_key, 0, constants.USER_BROWSING_HISTORY_COUNTS_LIMIT - 1)
+
+        return validated_data
+
+
+class UserAddressSerializer(serializers.ModelSerializer):
+    """
+    用户地址序列化器
+    """
+    province = serializers.StringRelatedField(read_only=True)
+    city = serializers.StringRelatedField(read_only=True)
+    district = serializers.StringRelatedField(read_only=True)
+    province_id = serializers.IntegerField(label='省ID', required=True)
+    city_id = serializers.IntegerField(label='市ID', required=True)
+    district_id = serializers.IntegerField(label='区ID', required=True)
+
+    class Meta:
+        model = Address
+        exclude = ('user', 'is_deleted', 'create_time', 'update_time')
+
+    def validate_mobile(self, value):
+        """
+        验证手机号
+        """
+        if not re.match(r'^1[3-9]\d{9}$', value):
+            raise serializers.ValidationError('手机号格式错误')
+        return value
+
+    def create(self, validated_data):
+        """
+        保存
+        """
+        validated_data['user'] = self.context['request'].user
+        return super().create(validated_data)
+
+
+class AddressTitleSerializer(serializers.ModelSerializer):
+    """
+    地址标题
+    """
+    class Meta:
+        model = Address
+        fields = ('title',)
+
+
+class EmailSerializer(serializers.ModelSerializer):
+    """用户邮箱设置序列化器类"""
+    class Meta:
+        model = User
+        fields = ('id', 'email')
+
+    def update(self, instance, validated_data):
+        """
+        设置user用户的邮箱并发送邮箱验证邮件
+        instance: 创建序列化器时传递对象
+        validated_data: 验证之后的数据
+        """
+        # 设置用户的邮箱
+        email = validated_data['email']
+        instance.email = email
+        instance.save()
+
+        # TODO: 发送邮箱的验证邮件
+        # 生成邮箱验证的链接地址: http://www.meiduo.site:8080/success_verify_email.html?user_id=<user_id>
+        # 如果链接地址中直接存储用户的信息，可能会造成别人的恶意请求
+        # 在生成箱验证的链接地址时，对用户的信息进行加密生成token，把加密之后token放在链接地址中
+        # http://www.meiduo.site:8080/success_verify_email.html?token=<token>
+        verify_url = instance.generate_verify_email_url()
+
+        # 发出发送邮件的任务消息
+        send_verify_email.delay(email, verify_url)
+
+        return instance
 
 
 class UserDetailSerializer(serializers.ModelSerializer):
-    """
-    用户详细信息序列化器
-    """
+    """用户个人信息序列化器类"""
     class Meta:
         model = User
         fields = ('id', 'username', 'mobile', 'email', 'email_active')
@@ -127,69 +241,6 @@ class CreateUserSerializer(serializers.ModelSerializer):
         return user
 
 
-class EmailSerializer(serializers.ModelSerializer):
-    """
-    邮箱序列化器
-    """
-    class Meta:
-        model = User
-        fields = ('id', 'email')
-        extra_kwargs = {
-            'email': {
-                'required': True
-            }
-        }
-
-    def update(self, instance, validated_data):
-        email = validated_data['email']
-        instance.email = email
-        instance.save()
-
-        # 生成验证链接
-        verify_url = instance.generate_verify_email_url()
-        # 发送验证邮件
-        send_verify_email.delay(email, verify_url)
-        return instance
-
-
-class UserAddressSerializer(serializers.ModelSerializer):
-    """
-    用户地址序列化器
-    """
-    province = serializers.StringRelatedField(read_only=True)
-    city = serializers.StringRelatedField(read_only=True)
-    district = serializers.StringRelatedField(read_only=True)
-    province_id = serializers.IntegerField(label='省ID', required=True)
-    city_id = serializers.IntegerField(label='市ID', required=True)
-    district_id = serializers.IntegerField(label='区ID', required=True)
-
-    class Meta:
-        model = Address
-        exclude = ('user', 'is_deleted', 'create_time', 'update_time')
-
-    def validate_mobile(self, value):
-        """
-        验证手机号
-        """
-        if not re.match(r'^1[3-9]\d{9}$', value):
-            raise serializers.ValidationError('手机号格式错误')
-        return value
-
-    def create(self, validated_data):
-        """
-        保存
-        """
-        validated_data['user'] = self.context['request'].user
-        return super().create(validated_data)
-
-
-class AddressTitleSerializer(serializers.ModelSerializer):
-    """
-    地址标题
-    """
-    class Meta:
-        model = Address
-        fields = ('title',)
 
 
 

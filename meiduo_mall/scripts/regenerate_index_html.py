@@ -1,3 +1,24 @@
+#!/usr/bin/env python
+
+"""
+功能：手动生成所有SKU的静态detail html文件
+使用方法:
+    ./regenerate_detail_html.py
+"""
+import sys
+import time
+
+sys.path.insert(0, '../')
+
+# 设置Django运行所依赖的环境变量
+import os
+if not os.getenv('DJANGO_SETTINGS_MODULE'):
+    os.environ['DJANGO_SETTINGS_MODULE'] = 'meiduo_mall.settings.dev'
+
+# 让Django进行一次初始化
+import django
+django.setup()
+
 from collections import OrderedDict
 from django.conf import settings
 from django.template import loader
@@ -6,6 +27,7 @@ import time
 
 from contents.models import ContentCategory
 from goods.models import GoodsChannel
+
 
 
 def generate_static_index_html():
@@ -64,5 +86,6 @@ def generate_static_index_html():
     with open(file_path, 'w', encoding='utf-8') as f:
         f.write(html_text)
 
+
 if __name__ == '__main__':
-    res = generate_static_index_html()
+    generate_static_index_html()
