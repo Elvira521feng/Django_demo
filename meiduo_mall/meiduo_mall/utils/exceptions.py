@@ -1,12 +1,15 @@
-from rest_framework.views import exception_handler as drf_exception_handler
 import logging
+
 from django.db import DatabaseError
 from redis.exceptions import RedisError
+
+from rest_framework.views import exception_handler as drf_exception_handler
 from rest_framework.response import Response
 from rest_framework import status
 
 # 获取在配置文件中定义的logger，用来记录日志
 logger = logging.getLogger('django')
+
 
 def exception_handler(exc, context):
     """

@@ -1,31 +1,26 @@
-import logging
+# 封装任务函数
+from celery_tasks.main import celery_app
+from celery_tasks.sms.yuntongxun.sms import CCP
 
-from celery_tasks.main import app
-from meiduo_mall.libs.yuntongxun.sms import CCP
-
-logger = logging.getLogger("django")
-
-# 验证码短信模板
+# 发送短信模板ID
 SMS_CODE_TEMP_ID = 1
 
+# 获取logger
+import logging
+logger = logging.getLogger('django')
 
-@app.task(name='send_sms_code')
-def send_sms_code(mobile, code, expires):
-    """
-    发送短信验证码
-    :param mobile: 手机号
-    :param code: 验证码
-    :param expires: 有效期
-    :return: None
-    """
+
+@celery_app.task(name='send_sms_code')
+def send_sms_code(mobile, sms_code, expires):
+    print('发送短信的任务函数被调用')
 
     try:
-        ccp = CCP()
-        result = ccp.send_template_sms(mobile, [code, expires], SMS_CODE_TEMP_ID)
+        res = CCP().send_template_sms(mobile, [sms_code, expires], SMS_CODE_TEMP_ID)
     except Exception as e:
-        logger.error("发送验证码短信[异常][ mobile: %s, message: %s ]" % (mobile, e))
+        logger.error('发送短信异常：[mobile: %s]-[sms_code: %s]' % (mobile, sms_code))
     else:
-        if result == 0:
-            logger.info("发送验证码短信[正常][ mobile: %s ]" % mobile)
+        if res != 0:
+            logger.error('发送短信失败：[mobile: %s]-[sms_code: %s]' % (mobile, sms_code))
         else:
-            logger.warning("发送验证码短信[失败][ mobile: %s ]" % mobile)
+            logger.info('发送短信成功：[mobile: %s]-[sms_code: %s]' % (mobile, sms_code))
+

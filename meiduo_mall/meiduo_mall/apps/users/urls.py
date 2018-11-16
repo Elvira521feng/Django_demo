@@ -8,14 +8,14 @@ urlpatterns = [
     url(r'^usernames/(?P<username>\w{5,20})/count/$', views.UsernameCountView.as_view()),
     url(r'^mobiles/(?P<mobile>1[3-9]\d{9})/count/$', views.MobileCountView.as_view()),
     url(r'^users/$', views.UserView.as_view()),
-    url(r'^authorizations/$', obtain_jwt_token),
+    # url(r'^authorizations/$', obtain_jwt_token), # ObtainJSONWebToken.as_view()
+    url(r'^authorizations/$', views.UserAuthorizeView.as_view()), # ObtainJSONWebToken.as_view()
     url(r'^user/$', views.UserDetailView.as_view()),
-    url(r'^email/$', views.EmailView.as_view()),  # 设置邮箱
-    url(r'^emails/verification/$', views.VerifyEmailView.as_view()),
+    url(r'^email/$', views.EmailView.as_view()),
+    url(r'^emails/verification/$', views.EmailVerifyView.as_view()),
     url(r'^browse_histories/$', views.BrowseHistoryView.as_view()),
 ]
 
 router = routers.DefaultRouter()
 router.register(r'addresses', views.AddressViewSet, base_name='addresses')
-
 urlpatterns += router.urls

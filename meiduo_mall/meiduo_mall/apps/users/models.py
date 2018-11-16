@@ -1,18 +1,21 @@
-from django.contrib.auth.models import AbstractUser
 from django.db import models
+from django.contrib.auth.models import AbstractUser
 from django.conf import settings
 
+from itsdangerous import TimedJSONWebSignatureSerializer as TJWSSerializer, BadData
+
+# Create your models here.
 from meiduo_mall.utils.models import BaseModel
 from users import constants
-
-from itsdangerous import TimedJSONWebSignatureSerializer as TJWSSerializer, BadData
 
 
 class User(AbstractUser):
     """用户模型类"""
-    mobile = models.CharField(max_length=11, unique=True, verbose_name='手机号')
+    mobile = models.CharField(max_length=11, verbose_name='手机号')
     email_active = models.BooleanField(default=False, verbose_name='邮箱验证状态')
-    default_address = models.ForeignKey('Address', related_name='users', null=True, blank=True, on_delete=models.SET_NULL, verbose_name='默认地址')
+    # openid = models.CharField(max_length=64, verbose_name='OpenID')
+    default_address = models.ForeignKey('Address', related_name='users', null=True, blank=True,
+                                        on_delete=models.SET_NULL, verbose_name='默认地址')
 
     class Meta:
         db_table = 'tb_users'
@@ -21,38 +24,49 @@ class User(AbstractUser):
 
     def generate_verify_email_url(self):
         """
-        生成验证邮箱的url
+        生成对应用户的邮箱验证的链接地址
         """
-        serializer = TJWSSerializer(settings.SECRET_KEY,expires_in=constants.VERIFY_EMAIL_TOKEN_EXPIRES)
-        data = {'user_id': self.id, 'email': self.email}
-        token = serializer.dumps(data).decode()
+        # 组织用户数据
+        data = {
+            'id': self.id,
+            'email': self.email
+        }
+
+        # 进行加密
+        serializer = TJWSSerializer(settings.SECRET_KEY, constants.VERIFY_EMAIL_TOKEN_EXPIRES)
+        token = serializer.dumps(data).decode() # str
+
+        # 拼接验证的链接地址
         verify_url = 'http://www.meiduo.site:8080/success_verify_email.html?token=' + token
         return verify_url
 
     @staticmethod
     def check_verify_email_token(token):
-        """
-        检查验证邮件的token
-        """
-        serializer = TJWSSerializer(settings.SECRET_KEY, expires_in=constants.VERIFY_EMAIL_TOKEN_EXPIRES)
+        """校验邮箱验证的token是否有效"""
+        serializer = TJWSSerializer(settings.SECRET_KEY)
+
         try:
             data = serializer.loads(token)
         except BadData:
             return None
         else:
+            # 获取用户id和email
+            id = data.get('id')
             email = data.get('email')
-            user_id = data.get('user_id')
-            try:
-                user = User.objects.get(id=user_id, email=email)
-            except User.DoesNotExist:
-                return None
-            else:
-                return user
+
+            # 获取对应的用户
+            user = User.objects.get(id=id, email=email)
+
+            return user
 
 
+# address
+# address.province
+# address.city
+# address.district
 class Address(BaseModel):
     """
-    用户地址
+    用户地址模型类
     """
     user = models.ForeignKey(User, on_delete=models.CASCADE, related_name='addresses', verbose_name='用户')
     title = models.CharField(max_length=20, verbose_name='地址名称')
@@ -65,10 +79,12 @@ class Address(BaseModel):
     tel = models.CharField(max_length=20, null=True, blank=True, default='', verbose_name='固定电话')
     email = models.CharField(max_length=30, null=True, blank=True, default='', verbose_name='电子邮箱')
     is_deleted = models.BooleanField(default=False, verbose_name='逻辑删除')
+    # is_default = models.BooleanField(default=False, verbose_name='是否默认')
 
     class Meta:
         db_table = 'tb_address'
         verbose_name = '用户地址'
         verbose_name_plural = verbose_name
         ordering = ['-update_time']
+
 

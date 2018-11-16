@@ -149,3 +149,4 @@ class OAuthQQ(object):
             return None
         else:
             return data.get('openid')
+

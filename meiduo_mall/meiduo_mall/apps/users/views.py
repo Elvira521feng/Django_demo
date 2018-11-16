@@ -1,22 +1,58 @@
+from datetime import datetime
+
+from django.shortcuts import render
 from django_redis import get_redis_connection
-from rest_framework import status, mixins
+from rest_framework import mixins
+from rest_framework import status
 from rest_framework.decorators import action
-from rest_framework.generics import CreateAPIView, RetrieveAPIView, UpdateAPIView
-from rest_framework.permissions import IsAuthenticated
+from rest_framework.generics import GenericAPIView, CreateAPIView, RetrieveAPIView, UpdateAPIView
 from rest_framework.response import Response
 from rest_framework.views import APIView
+from rest_framework.permissions import IsAuthenticated
 from rest_framework.viewsets import GenericViewSet
+from rest_framework_jwt.settings import api_settings
+from rest_framework_jwt.views import ObtainJSONWebToken, jwt_response_payload_handler
 
+from cart.utils import merge_cookie_cart_to_redis
 from goods.models import SKU
 from goods.serializers import SKUSerializer
-from users import serializers, constants
+from users import constants
+from users import serializers
 from users.models import User
+from users.serializers import CreateUserSerializer, UserDetailSerializer, EmailSerializer, BrowseHistorySerializer
+
+
+# Create your views here.
+
+# POST /authorizations/
+class UserAuthorizeView(ObtainJSONWebToken):
+    """登录视图"""
+    def post(self, request, *args, **kwargs):
+        serializer = self.get_serializer(data=request.data)
+
+        if serializer.is_valid():
+            # 账号和密码正确
+            user = serializer.object.get('user') or request.user
+            token = serializer.object.get('token')
+            response_data = jwt_response_payload_handler(token, user, request)
+            # 响应对象
+            response = Response(response_data)
+            if api_settings.JWT_AUTH_COOKIE:
+                expiration = (datetime.utcnow() +
+                              api_settings.JWT_EXPIRATION_DELTA)
+                response.set_cookie(api_settings.JWT_AUTH_COOKIE,
+                                    token,
+                                    expires=expiration,
+                                    httponly=True)
+
+            # 补充操作: 调用合并购物车记录函数
+            merge_cookie_cart_to_redis(request, user, response)
+            return response
+
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
 
 # POST /browse_histories/
-from users.serializers import BrowseHistorySerializer
-
-
 class BrowseHistoryView(CreateAPIView):
     permission_classes = [IsAuthenticated]
     serializer_class = BrowseHistorySerializer
@@ -68,94 +104,6 @@ class BrowseHistoryView(CreateAPIView):
     #
     #     # 3. 返回应答，浏览记录保存成功
     #     return Response(serializer.data, status=status.HTTP_201_CREATED)
-
-
-
-class VerifyEmailView(APIView):
-    """
-    邮箱验证
-    """
-    def put(self, request):
-        # 获取token
-        token = request.query_params.get('token')
-        if not token:
-            return Response({'message': '缺少token'}, status=status.HTTP_400_BAD_REQUEST)
-
-        # 验证token
-        user = User.check_verify_email_token(token)
-        if user is None:
-            return Response({'message': '链接信息无效'}, status=status.HTTP_400_BAD_REQUEST)
-        else:
-            user.email_active = True
-            user.save()
-            return Response({'message': 'OK'})
-
-
-class EmailView(UpdateAPIView):
-    """
-    保存用户邮箱
-    """
-    permission_classes = [IsAuthenticated]
-    serializer_class = serializers.EmailSerializer
-
-    def get_object(self, *args, **kwargs):
-        return self.request.user
-
-
-class UserDetailView(RetrieveAPIView):
-    """
-    用户详情
-    """
-    serializer_class = serializers.UserDetailSerializer
-    permission_classes = [IsAuthenticated]
-
-    def get_object(self):
-        return self.request.user
-
-
-class UsernameCountView(APIView):
-    """
-    用户名数量
-    """
-    def get(self, request, username):
-        """
-        获取指定用户名数量
-        """
-        count = User.objects.filter(username=username).count()
-
-        data = {
-            'username': username,
-            'count': count
-        }
-
-        return Response(data)
-
-
-class MobileCountView(APIView):
-    """
-    手机号数量
-    """
-    def get(self, request, mobile):
-        """
-        获取指定手机号数量
-        """
-        count = User.objects.filter(mobile=mobile).count()
-
-        data = {
-            'mobile': mobile,
-            'count': count
-        }
-
-        return Response(data)
-
-
-class UserView(CreateAPIView):
-    """
-        用户注册
-        传入参数：
-            username, password, password2, sms_code, mobile, allow
-    """
-    serializer_class = serializers.CreateUserSerializer
 
 
 class AddressViewSet(mixins.CreateModelMixin, mixins.UpdateModelMixin, GenericViewSet):
@@ -216,6 +164,7 @@ class AddressViewSet(mixins.CreateModelMixin, mixins.UpdateModelMixin, GenericVi
         """
         address = self.get_object()
         request.user.default_address = address
+        # request.user.default_address_id = address.id
         request.user.save()
         return Response({'message': 'OK'}, status=status.HTTP_200_OK)
 
@@ -233,3 +182,153 @@ class AddressViewSet(mixins.CreateModelMixin, mixins.UpdateModelMixin, GenericVi
         return Response(serializer.data)
 
 
+# PUT /emails/verification/?token=<token>
+class EmailVerifyView(APIView):
+    def put(self, request):
+        """
+        用户邮箱验证:
+        1. 获取token参数并进行校验(token必传，token是否有效)
+        2. 设置用户邮箱验证的标记为True
+        3. 返回应答，验证通过
+        """
+        # 1. 获取token参数并进行校验(token必传，token是否有效)
+        token = request.query_params.get('token')
+
+        if token is None:
+            return Response({'message': '缺少token参数'}, status=status.HTTP_400_BAD_REQUEST)
+
+        # token是否有效
+        user = User.check_verify_email_token(token)
+
+        if user is None:
+            return Response({'message': '无效的token数据'}, status=status.HTTP_400_BAD_REQUEST)
+
+        # 2. 设置用户邮箱验证的标记为True
+        user.email_active = True
+        user.save()
+
+        # 3. 返回应答，验证通过
+        return Response({'message': 'OK'})
+
+
+# PUT /email/
+# class EmailView(GenericAPIView):
+class EmailView(UpdateAPIView):
+    # 指定当前视图所使用的权限控制类
+    permission_classes = [IsAuthenticated]
+    serializer_class = EmailSerializer
+
+    def get_object(self):
+        """获取登录用户"""
+        # self.request: 视图的request对象
+        return self.request.user
+
+    # def put(self, request):
+    #     """
+    #     登录用户邮箱的设置:
+    #     1. 获取登录用户user
+    #     2. 获取参数email并进行校验(email必传，邮箱格式)
+    #     3. 设置user用户的邮箱并发送邮箱验证邮件
+    #     4. 返回应答
+    #     """
+    #     # 1. 获取登录用户user
+    #     user = self.get_object()
+    #
+    #     # 2. 获取参数email并进行校验(email必传，邮箱格式)
+    #     serializer = self.get_serializer(user, data=request.data)
+    #     serializer.is_valid(raise_exception=True)
+    #
+    #     # 3. 设置user用户的邮箱并发送邮箱验证邮件 (update)
+    #     serializer.save()
+    #
+    #     # 4. 返回应答
+    #     return Response(serializer.data)
+
+
+# GET /user/
+# class UserDetailView(GenericAPIView):
+class UserDetailView(RetrieveAPIView):
+    # 指定当前视图所使用的权限控制类
+    permission_classes = [IsAuthenticated]
+    serializer_class = UserDetailSerializer
+
+    def get_object(self):
+        """获取登录用户"""
+        # self.request: 视图的request对象
+        return self.request.user
+
+    # def get(self, request):
+    #     """
+    #     获取登录用户的信息:
+    #     1. 获取登录用户user
+    #     2. 将用户的信息序列化并返回
+    #     """
+    #     # 1. 获取登录用户user
+    #     # user = request.user
+    #     user = self.get_object()
+    #
+    #     # 2. 将用户的信息序列化并返回
+    #     serializer = self.get_serializer(user)
+    #     return Response(serializer.data)
+
+
+# POST /users/
+# class UserView(GenericAPIView):
+class UserView(CreateAPIView):
+    # 指定当前视图使用的序列化器类
+    serializer_class = CreateUserSerializer
+
+    # def post(self, request):
+    #     """
+    #     注册用户信息的保存:
+    #     1. 获取参数并进行校验(参数完整性，是否同意协议，手机号格式，手机号是否已经注册，两次密码是否一致，短信验证码是否正确)
+    #     2. 保存注册用户的信息
+    #     3. 返回注册用户数据
+    #     """
+    #     # 1. 获取参数并进行校验(参数完整性，是否同意协议，手机号格式，手机号是否已经注册，两次密码是否一致，短信验证码是否正确)
+    #     serializer = self.get_serializer(data=request.data)
+    #     serializer.is_valid(raise_exception=True)
+    #
+    #     # 2. 保存注册用户的信息(create)
+    #     serializer.save()
+    #
+    #     # 3. 返回注册用户数据
+    #     return Response(serializer.data, status=status.HTTP_201_CREATED)
+
+
+# url(r'^usernames/(?P<username>\w{5,20})/count/$', views.UsernameCountView.as_view()),
+class UsernameCountView(APIView):
+    """
+    用户名数量
+    """
+    def get(self, request, username):
+        """
+        获取指定用户名数量
+        """
+        count = User.objects.filter(username=username).count()
+
+        data = {
+            'username': username,
+            'count': count
+        }
+
+        return Response(data)
+
+
+# url(r'^mobiles/(?P<mobile>1[3-9]\d{9})/count/$', views.MobileCountView.as_view()),
+class MobileCountView(APIView):
+    """
+    手机号数量
+    """
+    def get(self, request, mobile):
+        """
+        获取指定手机号数量
+        """
+        count = User.objects.filter(mobile=mobile).count()
+
+        data = {
+            'mobile': mobile,
+            'count': count
+        }
+
+        return Response(data)

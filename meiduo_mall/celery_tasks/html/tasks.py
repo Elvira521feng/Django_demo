@@ -1,6 +1,6 @@
 # 封装生成商品静态详情页面的函数
 import os
-from celery_tasks.main import app
+from celery_tasks.main import celery_app
 from django.template import loader
 from django.conf import settings
 
@@ -8,7 +8,7 @@ from goods.utils import get_categories
 from goods.models import SKU
 
 
-@app.task(name='generate_static_sku_detail_html')
+@celery_app.task(name='generate_static_sku_detail_html')
 def generate_static_sku_detail_html(sku_id):
     """生成指定商品的静态详情页面"""
     # 从数据库中获取商品详情数据

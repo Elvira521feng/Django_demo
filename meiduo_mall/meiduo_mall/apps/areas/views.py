@@ -14,6 +14,9 @@ from areas.serializers import AreaSerializer, SubAreaSerializer
 # 视图集: 将操作同一组资源的处理函数放在同一类中
 class AreaViewSet(CacheResponseMixin, ReadOnlyModelViewSet):
     """地区的查询集"""
+    # 关闭当前视图分页
+    pagination_class = None
+
     def get_serializer_class(self):
         if self.action == 'list':
             return AreaSerializer

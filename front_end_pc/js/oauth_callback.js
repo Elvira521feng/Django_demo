@@ -24,6 +24,8 @@ var vm = new Vue({
         // 访问获取QQ登录用户openid并处理API接口
         axios.get(this.host + '/oauth/qq/user/?code=' + code, {
                 responseType: 'json',
+                // 此处为添加内容：让浏览器跨域请求时携带cookie信息
+                withCredentials: true
             })
             .then(response => {
                 if (response.data.user_id){
@@ -145,6 +147,8 @@ var vm = new Vue({
                         access_token: this.access_token
                     }, {
                         responseType: 'json',
+                        // 此处为添加内容：让浏览器跨域请求时携带cookie信息
+                        withCredentials: true
                     })
                     .then(response => {
                         // 记录用户登录状态
