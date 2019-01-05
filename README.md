@@ -1,2 +1,2 @@
-# meiduo
-美多商城项目
+# Django练习
+
